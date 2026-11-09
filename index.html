@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1410">
+  <title>Halı Saha Ligi</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚽</text></svg>">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <a href="#/" class="brand"><span class="ball">⚽</span><span id="league-name">Halı Saha Ligi</span></a>
+    <span id="season" class="season"></span>
+  </header>
+
+  <main id="app"><div class="loading">Yükleniyor…</div></main>
+
+  <nav class="tabs">
+    <a href="#/" data-tab="">🏆<span>Tablo</span></a>
+    <a href="#/fikstur" data-tab="fikstur">📅<span>Fikstür</span></a>
+    <a href="#/krallar" data-tab="krallar">👑<span>Krallar</span></a>
+    <a href="#/panel" data-tab="panel" id="tab-panel">👤<span>Giriş</span></a>
+  </nav>
+
+  <div id="toast"></div>
+  <div id="modal" hidden></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
