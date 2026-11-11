@@ -51,6 +51,72 @@ function logo(t, size = 28) {
   return `<span class="logo ph" style="width:${size}px;height:${size}px;background:${esc(t.color || '#16a34a')};font-size:${Math.round(size * 0.34)}px">${esc(ini)}</span>`;
 }
 
+// Oyuncu fotoğrafı (yoksa baş harfler, takım renginde)
+function avatar(p, size = 32) {
+  const t = p ? teamById(p.team_id) : null;
+  if (p?.photo_url) {
+    return `<img class="av" src="${esc(p.photo_url)}" crossorigin="anonymous" alt="" style="width:${size}px;height:${size}px">`;
+  }
+  const ini = p ? p.name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toLocaleUpperCase('tr') : '';
+  return `<span class="av ph" style="width:${size}px;height:${size}px;background:${esc(t?.color || '#334155')};font-size:${Math.round(size * 0.36)}px">${esc(ini)}</span>`;
+}
+const surname = n => { const w = String(n || '').trim().split(/\s+/); return w[w.length - 1].toLocaleUpperCase('tr'); };
+
+// ---------- Dizilişler ----------
+// Kaleci hariç; soldan sağa = defanstan hücuma
+const FORMATIONS = {
+  5: ['2-2', '1-2-1', '2-1-1', '3-1', '1-1-2'],
+  6: ['2-2-1', '3-2', '2-1-2', '3-1-1', '2-3', '1-2-2'],
+  7: ['2-3-1', '3-2-1', '2-1-2-1', '2-2-2', '3-1-2', '3-3', '1-3-2'],
+  8: ['3-3-1', '2-3-2', '3-2-2', '2-1-3-1', '3-1-2-1', '2-2-2-1', '4-2-1'],
+  9: ['3-3-2', '3-2-3', '3-1-3-1', '4-3-1', '3-4-1', '2-3-2-1', '4-2-2'],
+};
+// [[0], [1,2], [3], ...] — slot numaraları, kaleciden hücuma
+function formationLines(formation) {
+  const lines = [[0]];
+  let s = 1;
+  for (const n of String(formation).split('-').map(Number)) {
+    lines.push(Array.from({ length: n }, (_, i) => s + i));
+    s += n;
+  }
+  return lines;
+}
+function slotLabel(formation, slot) {
+  if (slot === 0) return 'Kaleci';
+  const lines = formationLines(formation);
+  const li = lines.findIndex(l => l.includes(slot));
+  if (li === 1) return 'Defans';
+  if (li === lines.length - 1) return 'Forvet';
+  return 'Orta saha';
+}
+
+// ---------- Resim yükleme (küçültüp yükler) ----------
+async function resizeImage(file, max, square, mime) {
+  let img;
+  try { img = await createImageBitmap(file); } catch { throw new Error('Resim okunamadı, başka bir dosya dene.'); }
+  let sx = 0, sy = 0, sw = img.width, sh = img.height;
+  if (square) { const s = Math.min(sw, sh); sx = (sw - s) / 2; sy = (sh - s) / 2; sw = sh = s; }
+  const k = Math.min(1, max / Math.max(sw, sh));
+  const c = document.createElement('canvas');
+  c.width = Math.round(sw * k); c.height = Math.round(sh * k);
+  c.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+  return new Promise(r => c.toBlob(r, mime, 0.85));
+}
+async function uploadImage(file, teamId, name, { max = 400, square = true, mime = 'image/jpeg' } = {}) {
+  const blob = await resizeImage(file, max, square, mime);
+  const path = `t${teamId}/${name}-${Date.now()}.${mime === 'image/png' ? 'png' : 'jpg'}`;
+  check(await sb.storage.from('logos').upload(path, blob, { contentType: mime, upsert: false, cacheControl: '31536000' }));
+  return sb.storage.from('logos').getPublicUrl(path).data.publicUrl;
+}
+async function uploadTeamLogo(teamId, file) {
+  const url = await uploadImage(file, teamId, 'logo', { max: 256, square: false, mime: 'image/png' });
+  check(await sb.rpc('set_team_logo', { p_team: teamId, p_url: url }));
+}
+async function uploadPlayerPhoto(player, file) {
+  const url = await uploadImage(file, player.team_id, `p${player.id}`, { max: 400, square: true });
+  check(await sb.from('players').update({ photo_url: url }).eq('id', player.id));
+}
+
 function fmtDate(iso, withDay = true) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -303,8 +369,8 @@ function viewLeaders() {
       <h3 class="card-h">${icon} ${title}</h3>
       ${list.length ? `<ol class="leaders">${list.slice(0, 15).map((x, i) => {
         const t = teamById(x.player.team_id);
-        return `<li class="${i < 3 ? 'top' + (i + 1) : ''}"><span class="rk">${i + 1}</span>${logo(t, 22)}
-          <span class="pl">${esc(x.player.name)}<small>${esc(t?.name)}</small></span><b>${x.n}</b><small class="u">${unit}</small></li>`;
+        return `<li class="${i < 3 ? 'top' + (i + 1) : ''}"><span class="rk">${i + 1}</span>${avatar(x.player, 38)}
+          <span class="pl">${esc(x.player.name)}<small>${logo(t, 14)} ${esc(t?.name)}</small></span><b>${x.n}</b><small class="u">${unit}</small></li>`;
       }).join('')}</ol>` : '<p class="muted pad">Henüz veri yok.</p>'}
     </div>`;
   app.innerHTML = `
@@ -339,7 +405,7 @@ function viewTeam(id) {
         <table class="roster"><thead><tr><th>No</th><th class="tm">Oyuncu</th><th>⚽</th><th>🎯</th><th>⭐</th></tr></thead>
         <tbody>${teamPlayers(id).map(p => {
           const s = st.get(p.id) || { g: 0, a: 0, mvp: 0 };
-          return `<tr><td>${p.number ?? ''}</td><td class="tm">${esc(p.name)}</td><td>${s.g}</td><td>${s.a}</td><td>${s.mvp}</td></tr>`;
+          return `<tr><td>${p.number ?? ''}</td><td class="tm"><span class="pcell">${avatar(p, 30)}${esc(p.name)}</span></td><td>${s.g}</td><td>${s.a}</td><td>${s.mvp}</td></tr>`;
         }).join('') || '<tr><td colspan="5" class="muted">Oyuncu eklenmemiş.</td></tr>'}</tbody></table>
       </div>
     </div>
@@ -359,16 +425,56 @@ function editableTeams(m) {
   return [];
 }
 
+// ---------- Saha görünümü ----------
+function lineupOf(tid, lineups, forms) {
+  const form = forms.find(f => f.team_id === tid) || null;
+  const slots = new Map(), bench = [];
+  for (const l of lineups.filter(x => x.team_id === tid)) {
+    const p = playerById(l.player_id);
+    if (!p) continue;
+    if (form && l.slot != null && l.slot < form.player_count) slots.set(l.slot, p); else bench.push(p);
+  }
+  bench.sort((x, y) => (x.number ?? 999) - (y.number ?? 999) || byTr(x.name, y.name));
+  return { form, slots, bench };
+}
+
+function pChip(p, team) {
+  if (!p) return `<div class="pchip empty"><span class="av ph" style="width:44px;height:44px"></span><b>—</b></div>`;
+  return `<div class="pchip">${avatar(p, 44)}${p.number != null
+    ? `<span class="no" style="background:${esc(team?.color || '#16a34a')}">${p.number}</span>` : ''}<b>${esc(surname(p.name))}</b></div>`;
+}
+
+function pitchHalf(team, lu, top) {
+  if (!lu.form) {
+    return `<div class="half ${top ? 'ht' : 'hb'} free">${lu.bench.length
+      ? lu.bench.map(p => pChip(p, team)).join('') : '<span class="pitch-empty">Kadro girilmedi</span>'}</div>`;
+  }
+  const lines = formationLines(lu.form.formation);
+  const order = top ? lines : [...lines].reverse();
+  return `<div class="half ${top ? 'ht' : 'hb'}">${order.map(l =>
+    `<div class="line">${l.map(s => pChip(lu.slots.get(s), team)).join('')}</div>`).join('')}</div>`;
+}
+
+function pitchView(H, A, luH, luA) {
+  const label = (t, lu) => `<div class="pitch-label">${logo(t, 22)}<b>${esc(t?.name)}</b>${lu.form ? `<span class="fm">${esc(lu.form.formation)}</span>` : ''}</div>`;
+  const benchOf = (t, lu) => lu.form && lu.bench.length
+    ? `<div class="bench">${logo(t, 16)} <b>Yedekler:</b> ${lu.bench.map(p => `${p.number != null ? p.number + ' ' : ''}${esc(p.name)}`).join(', ')}</div>` : '';
+  return `<div class="pitch-wrap">${label(A, luA)}
+      <div class="pitch">${pitchHalf(A, luA, true)}<div class="midline"></div>${pitchHalf(H, luH, false)}</div>
+      ${label(H, luH)}${benchOf(H, luH)}${benchOf(A, luA)}</div>`;
+}
+
 async function viewMatch(id) {
   const m = state.matches.find(x => x.id === id);
   if (!m) { app.innerHTML = '<div class="card empty">Maç bulunamadı.</div>'; return; }
-  const lineups = check(await sb.from('lineups').select('*').eq('match_id', id));
+  const [lineups, forms] = await Promise.all([
+    sb.from('lineups').select('*').eq('match_id', id).then(check),
+    sb.from('match_formations').select('*').eq('match_id', id).then(check),
+  ]);
   const H = teamById(m.home_team_id), A = teamById(m.away_team_id);
   const [h, a] = scoreOf(m);
   const goals = [...goalsOf(id)].sort((x, y) => (x.minute ?? 999) - (y.minute ?? 999) || x.id - y.id);
   const mvp = playerById(m.mvp_player_id);
-  const luOf = tid => lineups.filter(l => l.team_id === tid).map(l => playerById(l.player_id)).filter(Boolean)
-    .sort((x, y) => (x.number ?? 999) - (y.number ?? 999) || byTr(x.name, y.name));
 
   const goalLine = g => {
     const s = playerById(g.scorer_id), as = playerById(g.assist_id);
@@ -389,19 +495,86 @@ async function viewMatch(id) {
         <a href="#/takim/${A?.id}" class="mh-team">${logo(A, 64)}<span>${esc(A?.name)}</span></a>
       </div>
       ${goals.length ? `<div class="card goals">${goals.map(goalLine).join('')}</div>` : ''}
-      ${mvp ? `<div class="card mvp">⭐ <b>Maçın Oyuncusu:</b> ${esc(mvp.name)} <small>${esc(teamById(mvp.team_id)?.name)}</small></div>` : ''}
-      <div class="lineups">
-        ${[H, A].map(t => `<div class="card"><h3 class="card-h">${logo(t, 22)} ${esc(t?.name)}</h3>
-          ${luOf(t?.id).length ? `<ul class="lu">${luOf(t.id).map(p => `<li>${pname(p)}</li>`).join('')}</ul>` : '<p class="muted">Kadro girilmedi.</p>'}</div>`).join('')}
-      </div>
+      ${mvp ? `<div class="card mvp">${avatar(mvp, 44)}<div><small>⭐ Maçın Oyuncusu</small><b>${esc(mvp.name)}</b><small>${esc(teamById(mvp.team_id)?.name)}</small></div></div>` : ''}
+      ${pitchView(H, A, lineupOf(H?.id, lineups, forms), lineupOf(A?.id, lineups, forms))}
     </div>
     ${shareBtn('cap-match')}
     ${m.note ? `<div class="card muted">📝 ${esc(m.note)}</div>` : ''}
-    ${editableTeams(m).map(t => teamEditor(m, t, lineups)).join('')}
+    ${editableTeams(m).map(t => teamEditor(m, t)).join('')}
     ${isAdmin() ? adminMatchEditor(m, lineups) : ''}`;
 
   bindShare(`mac-${H?.name}-${A?.name}`);
-  bindMatchEditors(m);
+  bindMatchEditors(m, lineups, forms);
+}
+
+// ---------- Kadro / diziliş düzenleyici ----------
+function renderLuEditor(box, T, ed) {
+  const t = teamById(T);
+  const opts = [...(FORMATIONS[ed.count] || [])];
+  if (!opts.includes(ed.formation)) opts.unshift(ed.formation);
+  const used = new Set(ed.slots.values());
+  const lines = formationLines(ed.formation);
+  const bench = teamPlayers(T).filter(p => !used.has(p.id));
+  box.innerHTML = `
+    <div class="grid">
+      <label>Oyuncu sayısı<select data-k="count">${[5, 6, 7, 8, 9].map(n =>
+        `<option value="${n}" ${n === ed.count ? 'selected' : ''}>${n} kişi (${n - 1}+1)</option>`).join('')}</select></label>
+      <label>Diziliş<select data-k="formation">${opts.map(f =>
+        `<option ${f === ed.formation ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select></label>
+    </div>
+    <p class="muted small">Sahadaki yuvaya dokun, oyuncuyu seç. (${used.size}/${ed.count} dolu)</p>
+    <div class="pitch edit-pitch"><div class="half hb">${[...lines].reverse().map(l => `<div class="line">${l.map(s =>
+      `<button type="button" class="slot" data-slot="${s}">${ed.slots.has(s)
+        ? pChip(playerById(ed.slots.get(s)), t)
+        : `<div class="pchip empty"><span class="av ph plus" style="width:44px;height:44px">+</span><b>${slotLabel(ed.formation, s)}</b></div>`}</button>`
+    ).join('')}</div>`).join('')}</div></div>
+    <h4>Yedekler</h4>
+    <div class="checks">${bench.map(p => `<label><input type="checkbox" data-bench="${p.id}" ${ed.bench.has(p.id) ? 'checked' : ''}> ${pname(p)}</label>`).join('')
+      || '<p class="muted small">Kalan oyuncu yok.</p>'}</div>`;
+
+  const rerender = () => renderLuEditor(box, T, ed);
+  $('[data-k="count"]', box).onchange = e => {
+    ed.count = Number(e.target.value);
+    if (!(FORMATIONS[ed.count] || []).includes(ed.formation)) ed.formation = FORMATIONS[ed.count][0];
+    for (const s of [...ed.slots.keys()]) if (s >= ed.count) { ed.bench.add(ed.slots.get(s)); ed.slots.delete(s); }
+    rerender();
+  };
+  $('[data-k="formation"]', box).onchange = e => { ed.formation = e.target.value; rerender(); };
+  $$('[data-slot]', box).forEach(b => (b.onclick = () => openPicker(T, ed, Number(b.dataset.slot), rerender)));
+  $$('[data-bench]', box).forEach(c => (c.onchange = () => {
+    const pid = Number(c.dataset.bench);
+    if (c.checked) ed.bench.add(pid); else ed.bench.delete(pid);
+  }));
+}
+
+function openPicker(T, ed, slot, done) {
+  const modal = $('#modal');
+  const cur = ed.slots.get(slot);
+  const where = pid => [...ed.slots].find(([, x]) => x === pid)?.[0];
+  modal.innerHTML = `<div class="modal-box picker">
+      <h3>${slotLabel(ed.formation, slot)} seç</h3>
+      <div class="plist">${teamPlayers(T).map(p => {
+        const at = where(p.id);
+        return `<button type="button" class="pitem ${p.id === cur ? 'on' : ''}" data-pid="${p.id}">${avatar(p, 40)}
+          <span>${pname(p)}${at != null && at !== slot ? `<small>şu an: ${slotLabel(ed.formation, at)}</small>` : ''}</span></button>`;
+      }).join('') || '<p class="muted">Önce takıma oyuncu ekle.</p>'}</div>
+      <div class="row">${cur ? '<button class="btn ghost" data-clear>Yuvayı boşalt</button>' : ''}<button class="btn ghost" data-close>Kapat</button></div>
+    </div>`;
+  modal.hidden = false;
+  const close = () => { modal.hidden = true; modal.innerHTML = ''; modal.onclick = null; };
+  modal.onclick = e => { if (e.target === modal) close(); };
+  $$('[data-pid]', modal).forEach(b => (b.onclick = () => {
+    const pid = Number(b.dataset.pid);
+    const old = where(pid);
+    if (old != null) ed.slots.delete(old);
+    if (cur != null && old != null && old !== slot) ed.slots.set(old, cur); // yer değiştir
+    ed.slots.set(slot, pid);
+    ed.bench.delete(pid);
+    close(); done();
+  }));
+  $('[data-close]', modal).onclick = close;
+  const c = $('[data-clear]', modal);
+  if (c) c.onclick = () => { ed.slots.delete(slot); close(); done(); };
 }
 
 function scorerOptions(m, T) {
@@ -413,19 +586,16 @@ function scorerOptions(m, T) {
     <option value="none">Golcü belirtilmemiş</option>`;
 }
 
-function teamEditor(m, T, lineups) {
+function teamEditor(m, T) {
   const t = teamById(T);
-  const inLu = new Set(lineups.filter(l => l.team_id === T).map(l => l.player_id));
   const myGoals = goalsOf(m.id).filter(g => g.team_id === T).sort((x, y) => (x.minute ?? 999) - (y.minute ?? 999) || x.id - y.id);
   const submitted = T === m.home_team_id ? m.home_submitted : m.away_submitted;
   return `
   <section class="card edit" data-team="${T}">
     <h3 class="card-h">${logo(t, 22)} ${esc(t?.name)} · Düzenle</h3>
 
-    <h4>Maç kadrosu</h4>
-    <div class="checks">${teamPlayers(T).map(p => `
-      <label><input type="checkbox" name="lu" value="${p.id}" ${inLu.has(p.id) ? 'checked' : ''}> ${pname(p)}</label>`).join('') || '<p class="muted">Önce oyuncu ekle.</p>'}
-    </div>
+    <h4>Maç kadrosu & diziliş</h4>
+    <div class="lu-editor"></div>
     <button class="btn" data-act="save-lineup">Kadroyu kaydet</button>
 
     <h4>Goller (${myGoals.length})</h4>
@@ -486,15 +656,28 @@ function adminMatchEditor(m, lineups) {
   </section>`;
 }
 
-function bindMatchEditors(m) {
+function bindMatchEditors(m, lineups, forms) {
   $$('.edit[data-team]').forEach(sec => {
     const T = Number(sec.dataset.team);
 
+    const form = forms.find(f => f.team_id === T);
+    const count = form?.player_count || 7;
+    const ed = { count, formation: form?.formation || FORMATIONS[count]?.[0] || '2-3-1', slots: new Map(), bench: new Set() };
+    for (const l of lineups.filter(x => x.team_id === T)) {
+      if (form && l.slot != null && l.slot < count) ed.slots.set(l.slot, l.player_id); else ed.bench.add(l.player_id);
+    }
+    renderLuEditor($('.lu-editor', sec), T, ed);
+
     $('[data-act="save-lineup"]', sec).onclick = () => act(async () => {
-      const ids = $$('input[name="lu"]:checked', sec).map(i => Number(i.value));
+      const slotted = new Set(ed.slots.values());
+      const rows = [...ed.slots].filter(([s]) => s < ed.count)
+        .map(([slot, pid]) => ({ match_id: m.id, player_id: pid, team_id: T, slot }))
+        .concat([...ed.bench].filter(pid => !slotted.has(pid))
+          .map(pid => ({ match_id: m.id, player_id: pid, team_id: T, slot: null })));
       check(await sb.from('lineups').delete().eq('match_id', m.id).eq('team_id', T));
-      if (ids.length) check(await sb.from('lineups').insert(ids.map(pid => ({ match_id: m.id, player_id: pid, team_id: T }))));
-    }, 'Kadro kaydedildi');
+      if (rows.length) check(await sb.from('lineups').insert(rows));
+      check(await sb.from('match_formations').upsert({ match_id: m.id, team_id: T, player_count: ed.count, formation: ed.formation }));
+    }, 'Kadro ve diziliş kaydedildi');
 
     $('.goal-form', sec).onsubmit = e => {
       e.preventDefault();
@@ -604,6 +787,8 @@ function playersEditor(T) {
   const ps = teamPlayers(T, false);
   return `<div class="players-editor" data-team="${T}">
     ${ps.map(p => `<form class="prow" data-pid="${p.id}">
+      <label class="photo-btn" title="Fotoğraf yükle">${avatar(p, 40)}<span class="cam">📷</span>
+        <input type="file" accept="image/*" hidden data-photo="${p.id}"></label>
       <input name="number" type="number" class="num" value="${p.number ?? ''}" placeholder="No">
       <input name="name" value="${esc(p.name)}" required>
       <label class="chk"><input type="checkbox" name="active" ${p.active ? 'checked' : ''}> Aktif</label>
@@ -624,6 +809,13 @@ function bindPlayersEditor() {
       act(async () => check(await sb.from('players').update({
         name: d.get('name').trim(), number: d.get('number') ? Number(d.get('number')) : null, active: d.get('active') === 'on',
       }).eq('id', Number(f.dataset.pid))), 'Oyuncu güncellendi');
+    }));
+    $$('[data-photo]', ed).forEach(inp => (inp.onchange = () => {
+      const file = inp.files[0];
+      const p = playerById(Number(inp.dataset.photo));
+      if (!file || !p) return;
+      toast('Fotoğraf yükleniyor…');
+      act(() => uploadPlayerPhoto(p, file), 'Fotoğraf yüklendi');
     }));
     $$('[data-del-player]', ed).forEach(b => (b.onclick = () => {
       if (!confirm('Oyuncu silinsin mi? Geçmiş gollerinde ismi görünmez olur. (Sadece pasif yapmak daha iyi olabilir.)')) return;
@@ -647,8 +839,19 @@ function captainPanel(head) {
     <h2 class="sec">Düzenlenebilir maçların</h2>
     <p class="muted">Maça dokun → kadro ve golleri gir.</p>
     <div class="card flush">${ms.map(matchRow).join('') || '<p class="muted pad">Açık maç yok.</p>'}</div>
+    <h2 class="sec">Takım logosu</h2>
+    <div class="card team-logo-edit">${logo(teamById(T), 64)}
+      <div><b>${esc(teamById(T)?.name)}</b>
+      <label class="btn small">Logoyu değiştir<input type="file" accept="image/*" hidden id="my-logo"></label></div></div>
     <h2 class="sec">${logo(teamById(T), 22)} Oyuncuların</h2>
+    <p class="muted small">Fotoğraf eklemek için oyuncunun yuvarlağına dokun.</p>
     <div class="card">${playersEditor(T)}</div>`;
+  $('#my-logo').onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    toast('Logo yükleniyor…');
+    act(() => uploadTeamLogo(T, file), 'Logo güncellendi');
+  };
   bindPlayersEditor();
 }
 
@@ -747,15 +950,8 @@ async function adminPanel(head) {
   $$('[data-logo]').forEach(inp => (inp.onchange = () => {
     const file = inp.files[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) return toast('Logo en fazla 2 MB olmalı.', true);
-    const id = Number(inp.dataset.logo);
-    act(async () => {
-      const ext = (file.name.split('.').pop() || 'png').toLowerCase();
-      const path = `team-${id}-${Date.now()}.${ext}`;
-      check(await sb.storage.from('logos').upload(path, file, { cacheControl: '3600', upsert: false, contentType: file.type }));
-      const { data } = sb.storage.from('logos').getPublicUrl(path);
-      check(await sb.from('teams').update({ logo_url: data.publicUrl }).eq('id', id));
-    }, 'Logo yüklendi');
+    toast('Logo yükleniyor…');
+    act(() => uploadTeamLogo(Number(inp.dataset.logo), file), 'Logo yüklendi');
   }));
 
   const pt = $('#panel-team');

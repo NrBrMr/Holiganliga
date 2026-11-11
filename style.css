@@ -87,7 +87,10 @@ td.pts { font-weight: 800; color: var(--green); font-size: 16px; }
 .mh-score div { font-size: 12px; font-weight: 400; margin-top: 4px; }
 .goals .goal { padding: 4px 0; }
 .goal.a { text-align: right; }
-.mvp { background: linear-gradient(90deg, #facc1522, transparent); border-color: #facc1555; }
+.mvp { background: linear-gradient(90deg, #facc1522, transparent); border-color: #facc1555;
+  display: flex; align-items: center; gap: 12px; }
+.mvp div { display: flex; flex-direction: column; }
+.mvp div small { color: var(--muted); }
 .lineups { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .lineups .card { margin: 0 0 12px; }
 .lu { list-style: none; margin: 0; padding: 0; }
@@ -180,3 +183,60 @@ summary { cursor: pointer; color: var(--green); font-weight: 600; }
 .modal-box img { width: 100%; border-radius: 8px; }
 .modal-box .row { justify-content: center; }
 code { background: var(--card2); padding: 1px 6px; border-radius: 6px; }
+
+/* Oyuncu fotoğrafı */
+.av { border-radius: 50%; object-fit: cover; flex: none; display: inline-block; vertical-align: middle; background: #fff1; }
+.av.ph { display: inline-flex; align-items: center; justify-content: center; font-weight: 800; color: #fff; }
+.av.plus { background: #ffffff22 !important; border: 2px dashed #ffffff88; font-size: 22px !important; }
+.pcell { display: inline-flex; align-items: center; gap: 8px; }
+.leaders .pl small { display: flex; align-items: center; gap: 4px; }
+
+/* Saha */
+.pitch-wrap { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 10px; margin-bottom: 12px; }
+.pitch-label { display: flex; align-items: center; gap: 8px; padding: 4px 4px 8px; }
+.pitch + .pitch-label { padding: 8px 4px 4px; }
+.edit-pitch::before { display: none; }
+.pitch-label .fm { margin-left: auto; color: var(--muted); font-weight: 700; background: var(--card2); padding: 1px 8px; border-radius: 6px; font-size: 13px; }
+.pitch { position: relative; border-radius: 10px; overflow: hidden; border: 2px solid #ffffff55;
+  background: repeating-linear-gradient(180deg, #1f7a3d 0 40px, #1c7038 40px 80px); }
+.pitch::before { /* orta yuvarlak */
+  content: ''; position: absolute; left: 50%; top: 50%; width: 90px; height: 90px; transform: translate(-50%, -50%);
+  border: 2px solid #ffffff55; border-radius: 50%; pointer-events: none; }
+.pitch .midline { height: 0; border-top: 2px solid #ffffff55; }
+.half { position: relative; display: flex; flex-direction: column; justify-content: space-around; min-height: 270px; padding: 10px 4px; gap: 6px; }
+.half::after { /* ceza sahası */
+  content: ''; position: absolute; left: 25%; right: 25%; height: 44px; border: 2px solid #ffffff44; pointer-events: none; }
+.half.ht::after { top: -2px; border-top: 0; }
+.half.hb::after { bottom: -2px; border-bottom: 0; }
+.half.free { flex-direction: row; flex-wrap: wrap; justify-content: center; align-content: center; }
+.pitch-empty { color: #ffffffaa; align-self: center; margin: auto; }
+.line { display: flex; justify-content: space-evenly; position: relative; z-index: 1; }
+.pchip { position: relative; display: flex; flex-direction: column; align-items: center; width: 70px; color: #fff; }
+.pchip .av { border: 2px solid #fff; box-shadow: 0 2px 6px #0006; }
+.pchip b { margin-top: 3px; font-size: 10.5px; letter-spacing: .2px; text-shadow: 0 1px 2px #000; max-width: 70px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #0006; padding: 0 5px; border-radius: 4px; }
+.pchip .no { position: absolute; top: -3px; right: 8px; min-width: 18px; height: 18px; line-height: 18px; border-radius: 9px;
+  font-size: 10px; font-weight: 800; text-align: center; padding: 0 4px; border: 1.5px solid #fff; }
+.pchip.empty b { font-weight: 600; color: #ffffffcc; }
+.bench { font-size: 13px; color: var(--muted); padding: 8px 4px 0; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.bench b { color: var(--text); }
+.edit-pitch .half { min-height: 300px; }
+.slot { background: none; border: 0; padding: 4px 0; cursor: pointer; border-radius: 10px; font: inherit; }
+.slot:active { background: #ffffff22; }
+
+/* Oyuncu seçici */
+.picker { text-align: left; }
+.picker h3 { margin: 0 0 10px; }
+.plist { display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow: auto; margin-bottom: 12px; }
+.pitem { display: flex; align-items: center; gap: 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 10px; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.pitem span { display: flex; flex-direction: column; }
+.pitem small { color: var(--orange); }
+.pitem.on { border-color: var(--green); background: #22c55e22; }
+
+/* Panel: fotoğraf / logo */
+.photo-btn { position: relative; cursor: pointer; flex: none; }
+.photo-btn .cam { position: absolute; right: -4px; bottom: -4px; font-size: 13px; background: var(--card2); border-radius: 50%; padding: 1px 3px; }
+.team-logo-edit { display: flex; align-items: center; gap: 14px; }
+.team-logo-edit div { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.capturing .pitch-wrap { border: 0; }
