@@ -252,7 +252,7 @@ create policy "formations delete" on public.match_formations for delete
 create or replace function public.set_team_logo(p_team bigint, p_url text) returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  if not (public.is_admin() or p_team = public.my_team()) then
+  if not (coalesce(public.is_admin(), false) or coalesce(p_team = public.my_team(), false)) then
     raise exception 'Bu takım için yetkin yok';
   end if;
   update teams set logo_url = p_url where id = p_team;

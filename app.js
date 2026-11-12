@@ -42,13 +42,21 @@ function teamPlayers(tid, onlyActive = true) {
     .sort((a, b) => (a.number ?? 999) - (b.number ?? 999) || byTr(a.name, b.name));
 }
 
+// Açık renk zemin üstünde koyu yazı
+function ink(c) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(c || '');
+  if (!m) return '#fff';
+  const n = parseInt(m[1], 16);
+  return ((n >> 16) * 299 + ((n >> 8) & 255) * 587 + (n & 255) * 114) / 1000 > 165 ? '#111' : '#fff';
+}
+
 function logo(t, size = 28) {
   if (!t) return `<span class="logo ph" style="width:${size}px;height:${size}px"></span>`;
   if (t.logo_url) {
     return `<img class="logo" src="${esc(t.logo_url)}" crossorigin="anonymous" alt="" style="width:${size}px;height:${size}px">`;
   }
   const ini = (t.short_name || t.name).slice(0, 3).toLocaleUpperCase('tr');
-  return `<span class="logo ph" style="width:${size}px;height:${size}px;background:${esc(t.color || '#16a34a')};font-size:${Math.round(size * 0.34)}px">${esc(ini)}</span>`;
+  return `<span class="logo ph" style="width:${size}px;height:${size}px;background:${esc(t.color || '#16a34a')};color:${ink(t.color || '#16a34a')};font-size:${Math.round(size * 0.34)}px">${esc(ini)}</span>`;
 }
 
 // Oyuncu fotoğrafı (yoksa baş harfler, takım renginde)
@@ -58,7 +66,7 @@ function avatar(p, size = 32) {
     return `<img class="av" src="${esc(p.photo_url)}" crossorigin="anonymous" alt="" style="width:${size}px;height:${size}px">`;
   }
   const ini = p ? p.name.trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toLocaleUpperCase('tr') : '';
-  return `<span class="av ph" style="width:${size}px;height:${size}px;background:${esc(t?.color || '#334155')};font-size:${Math.round(size * 0.36)}px">${esc(ini)}</span>`;
+  return `<span class="av ph" style="width:${size}px;height:${size}px;background:${esc(t?.color || '#334155')};color:${ink(t?.color || '#334155')};font-size:${Math.round(size * 0.36)}px">${esc(ini)}</span>`;
 }
 const surname = n => { const w = String(n || '').trim().split(/\s+/); return w[w.length - 1].toLocaleUpperCase('tr'); };
 
@@ -282,7 +290,7 @@ function shareBtn(id) { return `<button class="btn share" data-share="${id}">�
 function bindShare(name) {
   $$('[data-share]').forEach(b => (b.onclick = () => shareNode(document.getElementById(b.dataset.share), name)));
 }
-const capHead = sub => `<div class="cap-head"><b>⚽ ${esc(LEAGUE_NAME)}</b><span>${esc(sub)}</span></div>`;
+const capHead = sub => `<div class="cap-head"><b>${document.querySelector('.crest')?.outerHTML || ''}${esc(LEAGUE_NAME)}</b><span>${esc(sub)}</span></div>`;
 
 // =====================================================================
 //  SAYFALAR
@@ -302,7 +310,7 @@ function viewStandings() {
           <thead><tr><th>#</th><th class="tm">Takım</th><th>O</th><th>G</th><th>B</th><th>M</th>
             <th class="hide-sm">AG</th><th class="hide-sm">YG</th><th>AV</th><th>P</th><th class="hide-sm">Form</th></tr></thead>
           <tbody>${rows.map((r, i) => `
-            <tr>
+            <tr class="${i === 0 && r.o ? 'lead' : ''}${i === rows.length - 1 && r.o ? ' last' : ''}">
               <td class="pos">${i + 1}</td>
               <td class="tm"><a href="#/takim/${r.team.id}">${logo(r.team, 24)}<span>${esc(r.team.name)}</span></a></td>
               <td>${r.o}</td><td>${r.g}</td><td>${r.b}</td><td>${r.m}</td>
@@ -364,14 +372,27 @@ function viewFixtures() {
 
 function viewLeaders() {
   const L = leaders();
+  const podium = (list, unit) => {
+    const top = [list[1], list[0], list[2]];
+    return `<div class="podium">${top.map((x, k) => {
+      if (!x) return '<div class="pod none"></div>';
+      const rank = [2, 1, 3][k], t = teamById(x.player.team_id);
+      return `<div class="pod p${rank}">
+        <div class="pod-av">${avatar(x.player, rank === 1 ? 74 : 58)}<span class="pod-rk">${rank}</span></div>
+        <b class="pod-name">${esc(x.player.name)}</b>
+        <small class="pod-team">${logo(t, 14)}<span>${esc(t?.name)}</span></small>
+        <div class="pod-bar"><em>${x.n}</em><small>${unit}</small></div>
+      </div>`;
+    }).join('')}</div>`;
+  };
   const block = (title, icon, list, unit) => `
-    <div class="card flush">
+    <div class="card flush board">
       <h3 class="card-h">${icon} ${title}</h3>
-      ${list.length ? `<ol class="leaders">${list.slice(0, 15).map((x, i) => {
+      ${list.length ? podium(list, unit) + (list.length > 3 ? `<ol class="leaders" start="4">${list.slice(3, 15).map((x, i) => {
         const t = teamById(x.player.team_id);
-        return `<li class="${i < 3 ? 'top' + (i + 1) : ''}"><span class="rk">${i + 1}</span>${avatar(x.player, 38)}
+        return `<li><span class="rk">${i + 4}</span>${avatar(x.player, 36)}
           <span class="pl">${esc(x.player.name)}<small>${logo(t, 14)} ${esc(t?.name)}</small></span><b>${x.n}</b><small class="u">${unit}</small></li>`;
-      }).join('')}</ol>` : '<p class="muted pad">Henüz veri yok.</p>'}
+      }).join('')}</ol>` : '') : '<p class="muted pad">Henüz veri yok.</p>'}
     </div>`;
   app.innerHTML = `
     <div id="cap-leaders" class="cap">
@@ -438,21 +459,47 @@ function lineupOf(tid, lineups, forms) {
   return { form, slots, bench };
 }
 
-function pChip(p, team) {
-  if (!p) return `<div class="pchip empty"><span class="av ph" style="width:44px;height:44px"></span><b>—</b></div>`;
-  return `<div class="pchip">${avatar(p, 44)}${p.number != null
-    ? `<span class="no" style="background:${esc(team?.color || '#16a34a')}">${p.number}</span>` : ''}<b>${esc(surname(p.name))}</b></div>`;
+// Saha çizgileri (68 x 120). Stiller html2canvas için satır içi.
+function pitchSvg(half = false) {
+  const W = 68, L = 120, m = L / 2, g = 2, b = L - 2;
+  const line = 'fill="none" stroke="rgba(255,255,255,.62)" stroke-width=".38"';
+  const dot = 'fill="rgba(255,255,255,.7)"';
+  const stripes = Array.from({ length: 15 }, (_, i) => i % 2 ? '' : `<rect x="0" y="${i * 8}" width="${W}" height="8" fill="rgba(255,255,255,.045)"/>`).join('');
+  const box = (y0, dir) => {
+    const y = v => y0 + dir * v;
+    const r = (x, w, d) => `<rect x="${x}" y="${Math.min(y(0), y(d))}" width="${w}" height="${d}" ${line}/>`;
+    const ay = y(16.5);
+    return r(13.84, 40.32, 16.5) + r(24.84, 18.32, 5.5)
+      + `<circle cx="34" cy="${y(11)}" r=".5" ${dot}/>`
+      + `<path d="M ${26.69} ${ay} A 9.15 9.15 0 0 ${dir === 1 ? 0 : 1} ${41.31} ${ay}" ${line}/>`
+      + `<rect x="30.34" y="${dir === 1 ? y0 - 1.6 : y0}" width="7.32" height="1.6" fill="rgba(255,255,255,.18)" ${line.replace('fill="none" ', '')}/>`;
+  };
+  return `<svg class="pitch-svg" viewBox="${half ? `0 ${m} ${W} ${m}` : `0 0 ${W} ${L}`}" preserveAspectRatio="none" aria-hidden="true">
+    <rect x="0" y="0" width="${W}" height="${L}" fill="#1b7a3e"/>${stripes}
+    <rect x="${g}" y="${g}" width="${W - 2 * g}" height="${b - g}" ${line}/>
+    <line x1="${g}" y1="${m}" x2="${W - g}" y2="${m}" ${line}/>
+    <circle cx="34" cy="${m}" r="9.15" ${line}/><circle cx="34" cy="${m}" r=".55" ${dot}/>
+    ${box(g, 1)}${box(b, -1)}
+    <path d="M${g} ${g + 1} A1 1 0 0 0 ${g + 1} ${g} M${W - g - 1} ${g} A1 1 0 0 0 ${W - g} ${g + 1} M${W - g} ${b - 1} A1 1 0 0 0 ${W - g - 1} ${b} M${g + 1} ${b} A1 1 0 0 0 ${g} ${b - 1}" ${line}/>
+  </svg>`;
+}
+
+function pChip(p, team, size = 42) {
+  if (!p) return `<div class="pchip empty"><span class="av ph" style="width:${size}px;height:${size}px"></span><b>—</b></div>`;
+  return `<div class="pchip">${avatar(p, size)}${p.number != null
+    ? `<span class="no" style="background:${esc(team?.color || '#16a34a')};color:${ink(team?.color || '#16a34a')}">${p.number}</span>` : ''}<b>${esc(surname(p.name))}</b></div>`;
 }
 
 function pitchHalf(team, lu, top) {
   if (!lu.form) {
     return `<div class="half ${top ? 'ht' : 'hb'} free">${lu.bench.length
-      ? lu.bench.map(p => pChip(p, team)).join('') : '<span class="pitch-empty">Kadro girilmedi</span>'}</div>`;
+      ? lu.bench.map(p => pChip(p, team, 38)).join('') : '<span class="pitch-empty">Kadro girilmedi</span>'}</div>`;
   }
   const lines = formationLines(lu.form.formation);
   const order = top ? lines : [...lines].reverse();
+  const size = lines.length > 4 ? 34 : 40;
   return `<div class="half ${top ? 'ht' : 'hb'}">${order.map(l =>
-    `<div class="line">${l.map(s => pChip(lu.slots.get(s), team)).join('')}</div>`).join('')}</div>`;
+    `<div class="line">${l.map(s => pChip(lu.slots.get(s), team, size)).join('')}</div>`).join('')}</div>`;
 }
 
 function pitchView(H, A, luH, luA) {
@@ -460,7 +507,7 @@ function pitchView(H, A, luH, luA) {
   const benchOf = (t, lu) => lu.form && lu.bench.length
     ? `<div class="bench">${logo(t, 16)} <b>Yedekler:</b> ${lu.bench.map(p => `${p.number != null ? p.number + ' ' : ''}${esc(p.name)}`).join(', ')}</div>` : '';
   return `<div class="pitch-wrap">${label(A, luA)}
-      <div class="pitch">${pitchHalf(A, luA, true)}<div class="midline"></div>${pitchHalf(H, luH, false)}</div>
+      <div class="pitch">${pitchSvg()}${pitchHalf(A, luA, true)}${pitchHalf(H, luH, false)}</div>
       ${label(H, luH)}${benchOf(H, luH)}${benchOf(A, luA)}</div>`;
 }
 
@@ -489,7 +536,7 @@ async function viewMatch(id) {
   app.innerHTML = `
     <div id="cap-match" class="cap">
       ${capHead(`${m.week}. Hafta${m.match_date ? ' · ' + fmtDate(m.match_date) : ''}${m.venue ? ' · ' + m.venue : ''}`)}
-      <div class="card match-hero">
+      <div class="card match-hero" style="--hc:${esc(H?.color || '#16a34a')};--ac:${esc(A?.color || '#16a34a')}">
         <a href="#/takim/${H?.id}" class="mh-team">${logo(H, 64)}<span>${esc(H?.name)}</span></a>
         <div class="mh-score">${m.status === 'approved' || goals.length ? `${h} - ${a}` : 'vs'}<div>${status}</div></div>
         <a href="#/takim/${A?.id}" class="mh-team">${logo(A, 64)}<span>${esc(A?.name)}</span></a>
@@ -523,10 +570,10 @@ function renderLuEditor(box, T, ed) {
         `<option ${f === ed.formation ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select></label>
     </div>
     <p class="muted small">Sahadaki yuvaya dokun, oyuncuyu seç. (${used.size}/${ed.count} dolu)</p>
-    <div class="pitch edit-pitch"><div class="half hb">${[...lines].reverse().map(l => `<div class="line">${l.map(s =>
+    <div class="pitch edit-pitch">${pitchSvg(true)}<div class="half hb">${[...lines].reverse().map(l => `<div class="line">${l.map(s =>
       `<button type="button" class="slot" data-slot="${s}">${ed.slots.has(s)
         ? pChip(playerById(ed.slots.get(s)), t)
-        : `<div class="pchip empty"><span class="av ph plus" style="width:44px;height:44px">+</span><b>${slotLabel(ed.formation, s)}</b></div>`}</button>`
+        : `<div class="pchip empty"><span class="av ph plus" style="width:42px;height:42px">+</span><b>${slotLabel(ed.formation, s)}</b></div>`}</button>`
     ).join('')}</div>`).join('')}</div></div>
     <h4>Yedekler</h4>
     <div class="checks">${bench.map(p => `<label><input type="checkbox" data-bench="${p.id}" ${ed.bench.has(p.id) ? 'checked' : ''}> ${pname(p)}</label>`).join('')
