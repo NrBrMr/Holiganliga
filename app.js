@@ -240,12 +240,22 @@ function leaders() {
     if (g.scorer_id && !g.own_goal) inc(goals, g.scorer_id);
     if (g.assist_id) inc(assists, g.assist_id);
   }
-  for (const m of state.matches) if (approved.has(m.id) && m.mvp_player_id) inc(mvps, m.mvp_player_id);
+  for (const m of state.matches) if (approved.has(m.id)) matchMvps(m).forEach(id => id && inc(mvps, id));
   const list = map => [...map.entries()]
     .map(([pid, n]) => ({ player: playerById(pid), n }))
     .filter(x => x.player)
     .sort((a, b) => b.n - a.n || byTr(a.player.name, b.player.name));
   return { goals: list(goals), assists: list(assists), mvps: list(mvps) };
+}
+
+// Maçın MVP'leri: [ev sahibi, deplasman] (eski tek-MVP kayıtları da sayılır)
+function matchMvps(m) {
+  let h = m.home_mvp_id ?? null, a = m.away_mvp_id ?? null;
+  if (h == null && a == null && m.mvp_player_id) {
+    const t = playerById(m.mvp_player_id)?.team_id;
+    if (t === m.home_team_id) h = m.mvp_player_id; else a = m.mvp_player_id;
+  }
+  return [h, a];
 }
 
 const lastApprovedWeek = () =>
@@ -284,6 +294,22 @@ async function shareNode(node, name) {
       <button class="btn ghost" id="modal-close">Kapat</button></div></div>`;
   modal.hidden = false;
   $('#modal-close').onclick = () => { modal.hidden = true; modal.innerHTML = ''; URL.revokeObjectURL(url); };
+}
+
+// Tarayıcının confirm() penceresi bazı yerlerde (uygulama içi tarayıcılar) çıkmıyor; kendi penceremiz:
+function askConfirm(msg, okLabel = 'Evet, sil') {
+  return new Promise(resolve => {
+    const modal = $('#modal');
+    modal.innerHTML = `<div class="modal-box confirm-box">
+        <p>${esc(msg)}</p>
+        <div class="row"><button class="btn ghost" data-no>Vazgeç</button><button class="btn danger" data-yes>${esc(okLabel)}</button></div>
+      </div>`;
+    modal.hidden = false;
+    const done = v => { modal.hidden = true; modal.innerHTML = ''; modal.onclick = null; resolve(v); };
+    $('[data-yes]', modal).onclick = () => done(true);
+    $('[data-no]', modal).onclick = () => done(false);
+    modal.onclick = e => { if (e.target === modal) done(false); };
+  });
 }
 
 function shareBtn(id) { return `<button class="btn share" data-share="${id}">📸 Görsel olarak paylaş</button>`; }
@@ -416,7 +442,7 @@ function viewTeam(id) {
     if (g.scorer_id && !g.own_goal) get(g.scorer_id).g++;
     if (g.assist_id) get(g.assist_id).a++;
   }
-  for (const m of state.matches) if (approved.has(m.id) && m.mvp_player_id) get(m.mvp_player_id).mvp++;
+  for (const m of state.matches) if (approved.has(m.id)) matchMvps(m).forEach(id => id && get(id).mvp++);
   const row = computeStandings().findIndex(r => r.team.id === id) + 1;
   const ms = state.matches.filter(m => m.home_team_id === id || m.away_team_id === id).sort((a, b) => a.week - b.week || byDate(a, b));
   app.innerHTML = `
@@ -521,7 +547,7 @@ async function viewMatch(id) {
   const H = teamById(m.home_team_id), A = teamById(m.away_team_id);
   const [h, a] = scoreOf(m);
   const goals = [...goalsOf(id)].sort((x, y) => (x.minute ?? 999) - (y.minute ?? 999) || x.id - y.id);
-  const mvp = playerById(m.mvp_player_id);
+  const mvps = matchMvps(m).map(playerById);
 
   const goalLine = g => {
     const s = playerById(g.scorer_id), as = playerById(g.assist_id);
@@ -542,7 +568,9 @@ async function viewMatch(id) {
         <a href="#/takim/${A?.id}" class="mh-team">${logo(A, 64)}<span>${esc(A?.name)}</span></a>
       </div>
       ${goals.length ? `<div class="card goals">${goals.map(goalLine).join('')}</div>` : ''}
-      ${mvp ? `<div class="card mvp">${avatar(mvp, 44)}<div><small>⭐ Maçın Oyuncusu</small><b>${esc(mvp.name)}</b><small>${esc(teamById(mvp.team_id)?.name)}</small></div></div>` : ''}
+      ${mvps.some(Boolean) ? `<div class="mvps">${mvps.map((p, i) => p
+        ? `<div class="card mvp">${avatar(p, 44)}<div><small>⭐ MVP</small><b>${esc(p.name)}</b><small>${logo(i ? A : H, 14)} ${esc(teamById(p.team_id)?.name)}</small></div></div>`
+        : `<div class="card mvp none"><div><small>⭐ MVP</small><b>—</b><small>${logo(i ? A : H, 14)} ${esc((i ? A : H)?.name)}</small></div></div>`).join('')}</div>` : ''}
       ${pitchView(H, A, lineupOf(H?.id, lineups, forms), lineupOf(A?.id, lineups, forms))}
     </div>
     ${shareBtn('cap-match')}
@@ -670,19 +698,22 @@ function teamEditor(m, T) {
 
 function adminMatchEditor(m, lineups) {
   const luIds = new Set(lineups.map(l => l.player_id));
-  let cands = [...teamPlayers(m.home_team_id), ...teamPlayers(m.away_team_id)];
-  if (luIds.size) cands = cands.filter(p => luIds.has(p.id));
+  const candsOf = tid => { const ps = teamPlayers(tid); const inLu = ps.filter(p => luIds.has(p.id)); return inLu.length ? inLu : ps; };
+  const [hm, am] = matchMvps(m);
+  const sel = (id, tid, cur) => `<label>${logo(teamById(tid), 16)} ${esc(teamById(tid)?.name)}
+      <select id="${id}"><option value="">— Seçilmedi —</option>${candsOf(tid).map(p =>
+        `<option value="${p.id}" ${p.id === cur ? 'selected' : ''}>${pname(p)}</option>`).join('')}</select></label>`;
   const sub = t => (t ? '✅' : '⏳');
   return `
   <section class="card edit admin" id="admin-match">
     <h3 class="card-h">🛠 Yönetici</h3>
     <p class="muted">Kaptan durumu: ${esc(teamById(m.home_team_id)?.name)} ${sub(m.home_submitted)} · ${esc(teamById(m.away_team_id)?.name)} ${sub(m.away_submitted)}</p>
 
-    <h4>Maçın Oyuncusu (MVP)</h4>
-    <div class="row">
-      <select id="mvp-sel"><option value="">— Seçilmedi —</option>${cands.map(p =>
-        `<option value="${p.id}" ${p.id === m.mvp_player_id ? 'selected' : ''}>${pname(p)} (${esc(teamById(p.team_id)?.short_name || teamById(p.team_id)?.name)})</option>`).join('')}</select>
-      <button class="btn" data-act="save-mvp">Kaydet</button>
+    <h4>Maçın Oyuncuları (her takımdan 1 MVP)</h4>
+    <div class="grid mvp-grid">
+      ${sel('mvp-home', m.home_team_id, hm)}
+      ${sel('mvp-away', m.away_team_id, am)}
+      <button class="btn full" data-act="save-mvp">MVP'leri kaydet</button>
     </div>
 
     <h4>Maç bilgileri</h4>
@@ -739,8 +770,8 @@ function bindMatchEditors(m, lineups, forms) {
       act(async () => check(await sb.from('goals').insert({ match_id: m.id, team_id: T, scorer_id, assist_id, own_goal, minute })), 'Gol eklendi');
     };
 
-    $$('[data-del-goal]', sec).forEach(b => (b.onclick = () => {
-      if (!confirm('Bu gol silinsin mi?')) return;
+    $$('[data-del-goal]', sec).forEach(b => (b.onclick = async () => {
+      if (!await askConfirm('Bu gol silinsin mi?')) return;
       act(async () => check(await sb.from('goals').delete().eq('id', Number(b.dataset.delGoal))), 'Gol silindi');
     }));
 
@@ -760,7 +791,10 @@ function bindMatchEditors(m, lineups, forms) {
   const adm = $('#admin-match');
   if (!adm) return;
   const upd = (patch, msg) => act(async () => check(await sb.from('matches').update(patch).eq('id', m.id)), msg);
-  $('[data-act="save-mvp"]', adm).onclick = () => upd({ mvp_player_id: $('#mvp-sel').value ? Number($('#mvp-sel').value) : null }, 'MVP kaydedildi');
+  $('[data-act="save-mvp"]', adm).onclick = () => {
+    const v = id => ($(id).value ? Number($(id).value) : null);
+    upd({ home_mvp_id: v('#mvp-home'), away_mvp_id: v('#mvp-away'), mvp_player_id: null }, "MVP'ler kaydedildi");
+  };
   $('#match-info').onsubmit = e => {
     e.preventDefault();
     const f = new FormData(e.target);
@@ -768,8 +802,8 @@ function bindMatchEditors(m, lineups, forms) {
   };
   $('[data-act="approve"]', adm)?.addEventListener('click', () => upd({ status: 'approved' }, 'Onaylandı, tablo güncellendi'));
   $('[data-act="unapprove"]', adm)?.addEventListener('click', () => upd({ status: 'planned' }, 'Onay kaldırıldı'));
-  $('[data-act="delete-match"]', adm).onclick = () => {
-    if (!confirm('Maç, golleri ve kadrosuyla birlikte silinecek. Emin misin?')) return;
+  $('[data-act="delete-match"]', adm).onclick = async () => {
+    if (!await askConfirm('Maç, golleri ve kadrosuyla birlikte silinecek. Emin misin?', 'Evet, maçı sil')) return;
     act(async () => { check(await sb.from('matches').delete().eq('id', m.id)); location.hash = '#/fikstur'; }, 'Maç silindi');
   };
 }
@@ -864,8 +898,8 @@ function bindPlayersEditor() {
       toast('Fotoğraf yükleniyor…');
       act(() => uploadPlayerPhoto(p, file), 'Fotoğraf yüklendi');
     }));
-    $$('[data-del-player]', ed).forEach(b => (b.onclick = () => {
-      if (!confirm('Oyuncu silinsin mi? Geçmiş gollerinde ismi görünmez olur. (Sadece pasif yapmak daha iyi olabilir.)')) return;
+    $$('[data-del-player]', ed).forEach(b => (b.onclick = async () => {
+      if (!await askConfirm('Oyuncu silinsin mi? Geçmiş gollerinde ismi görünmez olur. (Sadece pasif yapmak daha iyi olabilir.)')) return;
       act(async () => check(await sb.from('players').delete().eq('id', Number(b.dataset.delPlayer))), 'Oyuncu silindi');
     }));
     $('.add-player', ed).onsubmit = e => {
@@ -989,8 +1023,8 @@ async function adminPanel(head) {
     }).eq('id', Number(f.dataset.tid))), 'Takım güncellendi');
   }));
 
-  $$('[data-del-team]').forEach(b => (b.onclick = () => {
-    if (!confirm('Takım, oyuncuları ve maçlarıyla birlikte silinecek! Emin misin?')) return;
+  $$('[data-del-team]').forEach(b => (b.onclick = async () => {
+    if (!await askConfirm('Takım, oyuncuları ve maçlarıyla birlikte silinecek! Emin misin?', 'Evet, takımı sil')) return;
     act(async () => check(await sb.from('teams').delete().eq('id', Number(b.dataset.delTeam))), 'Takım silindi');
   }));
 
@@ -1005,12 +1039,12 @@ async function adminPanel(head) {
   if (pt) pt.onchange = () => { state.panelTeam = Number(pt.value); route(); };
   bindPlayersEditor();
 
-  $$('.urow').forEach(f => (f.onsubmit = e => {
+  $$('.urow').forEach(f => (f.onsubmit = async e => {
     e.preventDefault();
     const d = new FormData(f);
     const role = d.get('role'), team_id = d.get('team') ? Number(d.get('team')) : null;
     if (role === 'captain' && !team_id) return toast('Kaptan için takım seçmelisin.', true);
-    if (f.dataset.uid === state.session.user.id && role !== 'admin' && !confirm('Kendi yönetici yetkini kaldırıyorsun. Emin misin?')) return;
+    if (f.dataset.uid === state.session.user.id && role !== 'admin' && !await askConfirm('Kendi yönetici yetkini kaldırıyorsun. Emin misin?', 'Evet, kaldır')) return;
     act(async () => check(await sb.from('profiles').update({ role, team_id }).eq('id', f.dataset.uid)), 'Kullanıcı güncellendi');
   }));
 }
