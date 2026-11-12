@@ -14,6 +14,8 @@ const state = {
   goalsByMatch: new Map(),
   loaded: false,
   panelTeam: null,
+  lineupsAll: null,          // istatistik sayfaları için (gerektiğinde yüklenir)
+  statTeam: null, statSort: { key: 'ga', dir: -1 },
 };
 let lastHash = null;
 
@@ -194,7 +196,7 @@ async function loadAll() {
     if (!gbm.has(g.match_id)) gbm.set(g.match_id, []);
     gbm.get(g.match_id).push(g);
   }
-  Object.assign(state, { teams, players, matches, goals, goalsByMatch: gbm, loaded: true });
+  Object.assign(state, { teams, players, matches, goals, goalsByMatch: gbm, loaded: true, lineupsAll: null });
 }
 
 async function loadProfile() {
@@ -316,7 +318,7 @@ function shareBtn(id) { return `<button class="btn share" data-share="${id}">�
 function bindShare(name) {
   $$('[data-share]').forEach(b => (b.onclick = () => shareNode(document.getElementById(b.dataset.share), name)));
 }
-const capHead = sub => `<div class="cap-head"><b>${document.querySelector('.crest')?.outerHTML || ''}${esc(LEAGUE_NAME)}</b><span>${esc(sub)}</span></div>`;
+const capHead = sub => `<div class="cap-head"><b><img src="assets/logo-mark.png" alt="">${esc(LEAGUE_NAME)}</b><span>${esc(sub)}</span></div>`;
 
 // =====================================================================
 //  SAYFALAR
@@ -396,6 +398,153 @@ function viewFixtures() {
   }
 }
 
+// =====================================================================
+//  İSTATİSTİKLER
+// =====================================================================
+async function ensureAllLineups() {
+  if (!state.lineupsAll) state.lineupsAll = await fetchAll('lineups', 'match_id');
+}
+
+// Oyuncu başına: oynadığı maç (onaylı), gol, asist, MVP
+function playerStats() {
+  const approved = new Map(state.matches.filter(m => m.status === 'approved').map(m => [m.id, m]));
+  const S = new Map();
+  const get = pid => S.get(pid) || S.set(pid, { apps: new Set(), g: 0, a: 0, mvp: 0 }).get(pid);
+  for (const l of state.lineupsAll || []) if (approved.has(l.match_id)) get(l.player_id).apps.add(l.match_id);
+  for (const g of state.goals) {
+    if (!approved.has(g.match_id)) continue;
+    if (g.scorer_id && !g.own_goal) { const x = get(g.scorer_id); x.g++; x.apps.add(g.match_id); }
+    if (g.assist_id) { const x = get(g.assist_id); x.a++; x.apps.add(g.match_id); }
+  }
+  for (const m of approved.values()) matchMvps(m).forEach(id => { if (id) { const x = get(id); x.mvp++; x.apps.add(m.id); } });
+  return state.players.map(p => {
+    const x = S.get(p.id);
+    const g = x?.g || 0, a = x?.a || 0;
+    return { p, team: teamById(p.team_id), m: x ? x.apps.size : 0, g, a, ga: g + a, mvp: x?.mvp || 0 };
+  });
+}
+
+const RANKS = {
+  gol:   { key: 'g',   title: 'Gol Krallığı',   unit: 'gol',   icon: '⚽', side: ['a', 'asist'] },
+  asist: { key: 'a',   title: 'Asist Krallığı', unit: 'asist', icon: '🎯', side: ['g', 'gol'] },
+  mvp:   { key: 'mvp', title: 'MVP Sıralaması', unit: 'MVP',   icon: '⭐', side: ['ga', 'G+A'] },
+};
+const avg = (v, m) => (m ? (v / m).toFixed(2).replace('.', ',') : '–');
+
+function statTabs(active) {
+  const t = [['krallar', 'Özet'], ['krallar/gol', 'Gol'], ['krallar/asist', 'Asist'], ['krallar/mvp', 'MVP'], ['istatistik', 'Genel']];
+  return `<nav class="stat-tabs">${t.map(([h, l]) => `<a href="#/${h}" class="${h === active ? 'on' : ''}">${l}</a>`).join('')}</nav>`;
+}
+function teamChips() {
+  return `<div class="chips">
+    <button data-chip="" class="${state.statTeam ? '' : 'on'}">Tüm takımlar</button>
+    ${state.teams.map(t => `<button data-chip="${t.id}" class="${state.statTeam === t.id ? 'on' : ''}">${logo(t, 18)}${esc(t.short_name || t.name)}</button>`).join('')}
+  </div>`;
+}
+function bindChips() {
+  $$('[data-chip]').forEach(b => (b.onclick = () => { state.statTeam = b.dataset.chip ? Number(b.dataset.chip) : null; route(); }));
+}
+// Eşit değer + eşit maç = aynı sıra
+function withRanks(rows, key) {
+  let rank = 0, prev = null;
+  return rows.map((r, i) => {
+    const sig = `${r[key]}|${r.m}`;
+    if (sig !== prev) { rank = i + 1; prev = sig; }
+    return { ...r, rank };
+  });
+}
+
+async function viewRanking(kind) {
+  const R = RANKS[kind];
+  if (!R) { location.hash = '#/krallar'; return; }
+  await ensureAllLineups();
+  const all = playerStats().filter(r => r[R.key] > 0 && (!state.statTeam || r.p.team_id === state.statTeam))
+    .sort((x, y) => y[R.key] - x[R.key] || x.m - y.m || byTr(x.p.name, y.p.name));
+  const rows = withRanks(all, R.key);
+  const top = rows.slice(0, 3), rest = rows.slice(3);
+  const card = (r, i) => `
+    <a class="t3 r${Math.min(r.rank, 3)}${i === 0 ? ' wide' : ''}" href="#/takim/${r.p.team_id}">
+      <span class="t3-medal">${r.rank}</span>
+      <div class="t3-av">${avatar(r.p, i === 0 ? 78 : 64)}</div>
+      <div class="t3-info">
+        <b class="t3-name">${esc(r.p.name)}</b>
+        <small class="t3-team">${logo(r.team, 15)}<span>${esc(r.team?.name)}</span></small>
+        <div class="t3-mini">
+          <span><em>${r.m}</em>maç</span>
+          <span><em>${avg(r[R.key], r.m)}</em>ort.</span>
+          <span><em>${r[R.side[0]]}</em>${R.side[1]}</span>
+        </div>
+      </div>
+      <div class="t3-num"><em>${r[R.key]}</em><small>${R.unit}</small></div>
+    </a>`;
+  app.innerHTML = `
+    ${statTabs('krallar/' + kind)}
+    ${teamChips()}
+    <div id="cap-rank" class="cap">
+      ${capHead(`${R.title}${lastApprovedWeek() ? ` · ${lastApprovedWeek()}. hafta sonrası` : ''}`)}
+      <h2 class="page-title"><span>${R.icon}</span>${R.title}</h2>
+      ${rows.length ? `
+        <div class="top3">${top.map(card).join('')}</div>
+        ${rest.length ? `<div class="card flush">
+          <div class="rank-head"><span>#</span><span>Oyuncu</span><span>M</span><span>Ort.</span><span>${esc(R.unit)}</span></div>
+          <ol class="rank-list">${rest.map(r => `
+            <li><span class="rk">${r.rank}</span>
+              <span class="pl">${avatar(r.p, 34)}<span><b>${esc(r.p.name)}</b><small>${logo(r.team, 13)} ${esc(r.team?.name)}</small></span></span>
+              <span class="c">${r.m}</span><span class="c">${avg(r[R.key], r.m)}</span><span class="c v">${r[R.key]}</span></li>`).join('')}
+          </ol></div>` : ''}`
+      : `<div class="card empty">Henüz ${R.unit === 'MVP' ? 'MVP seçilmiş' : R.unit + ' kaydı olan'} onaylı maç yok.</div>`}
+    </div>
+    ${rows.length ? shareBtn('cap-rank') : ''}`;
+  bindChips();
+  bindShare(`holiganliga-${kind}`);
+}
+
+async function viewStats() {
+  await ensureAllLineups();
+  const { key, dir } = state.statSort;
+  const rows = playerStats()
+    .filter(r => (r.m || r.ga || r.mvp) && (!state.statTeam || r.p.team_id === state.statTeam))
+    .sort((x, y) => dir * (x[key] - y[key]) || y.ga - x.ga || y.g - x.g || byTr(x.p.name, y.p.name));
+  const cols = [['m', 'M', 'Oynadığı maç'], ['g', 'G', 'Gol'], ['a', 'A', 'Asist'], ['ga', 'G+A', 'Gol + asist'], ['mvp', 'MVP', 'MVP']];
+  const totals = rows.reduce((t, r) => (t.g += r.g, t.a += r.a, t.mvp += r.mvp, t), { g: 0, a: 0, mvp: 0 });
+  const approvedCount = state.matches.filter(m => m.status === 'approved').length;
+  app.innerHTML = `
+    ${statTabs('istatistik')}
+    ${teamChips()}
+    <div id="cap-stats" class="cap">
+      ${capHead('Genel İstatistikler')}
+      <h2 class="page-title"><span>📊</span>Genel İstatistikler</h2>
+      <div class="kpis">
+        <div><em>${approvedCount}</em><small>maç</small></div>
+        <div><em>${totals.g}</em><small>gol</small></div>
+        <div><em>${totals.a}</em><small>asist</small></div>
+        <div><em>${approvedCount ? (state.goals.filter(g => state.matches.find(m => m.id === g.match_id)?.status === 'approved').length / approvedCount).toFixed(1).replace('.', ',') : '–'}</em><small>gol/maç</small></div>
+      </div>
+      ${rows.length ? `<div class="card flush">
+        <table class="stats-table">
+          <thead><tr><th>#</th><th class="tm">Oyuncu</th>${cols.map(([k, l, tt]) =>
+            `<th class="sort ${k === key ? 'on' : ''}" data-sort="${k}" title="${tt}">${l}${k === key ? (dir < 0 ? ' ▾' : ' ▴') : ''}</th>`).join('')}</tr></thead>
+          <tbody>${rows.map((r, i) => `
+            <tr class="${i < 3 && r[key] > 0 ? 'medal m' + (i + 1) : ''}">
+              <td class="pos">${i + 1}</td>
+              <td class="tm"><a href="#/takim/${r.p.team_id}" class="pcell">${avatar(r.p, 30)}<span><b>${esc(r.p.name)}</b><small>${logo(r.team, 12)} ${esc(r.team?.short_name || r.team?.name)}</small></span></a></td>
+              ${cols.map(([k]) => `<td class="${k === key ? 'hl' : ''}">${r[k]}</td>`).join('')}
+            </tr>`).join('')}
+          </tbody>
+        </table></div>
+        <p class="muted small legend">M: oynadığı onaylı maç · G: gol · A: asist · Başlıklara dokunarak sıralamayı değiştir.</p>`
+      : '<div class="card empty">Henüz onaylanmış maç yok. İlk maç onaylandığında istatistikler burada görünecek.</div>'}
+    </div>
+    ${rows.length ? shareBtn('cap-stats') : ''}`;
+  $$('[data-sort]').forEach(th => (th.onclick = () => {
+    const k = th.dataset.sort;
+    state.statSort = { key: k, dir: state.statSort.key === k ? -state.statSort.dir : -1 };
+    route();
+  }));
+  bindChips();
+  bindShare('holiganliga-istatistik');
+}
+
 function viewLeaders() {
   const L = leaders();
   const podium = (list, unit) => {
@@ -411,21 +560,23 @@ function viewLeaders() {
       </div>`;
     }).join('')}</div>`;
   };
-  const block = (title, icon, list, unit) => `
+  const block = (title, icon, list, unit, kind) => `
     <div class="card flush board">
-      <h3 class="card-h">${icon} ${title}</h3>
+      <a class="card-h board-h" href="#/krallar/${kind}">${icon} ${title}<span class="more">Tümü ›</span></a>
       ${list.length ? podium(list, unit) + (list.length > 3 ? `<ol class="leaders" start="4">${list.slice(3, 15).map((x, i) => {
         const t = teamById(x.player.team_id);
         return `<li><span class="rk">${i + 4}</span>${avatar(x.player, 36)}
           <span class="pl">${esc(x.player.name)}<small>${logo(t, 14)} ${esc(t?.name)}</small></span><b>${x.n}</b><small class="u">${unit}</small></li>`;
       }).join('')}</ol>` : '') : '<p class="muted pad">Henüz veri yok.</p>'}
+      ${list.length ? `<a class="board-more" href="#/krallar/${kind}">Detaylı ${title.toLocaleLowerCase('tr')} istatistikleri ›</a>` : ''}
     </div>`;
   app.innerHTML = `
+    ${statTabs('krallar')}
     <div id="cap-leaders" class="cap">
       ${capHead(`Krallık Yarışı${lastApprovedWeek() ? ` · ${lastApprovedWeek()}. hafta sonrası` : ''}`)}
-      ${block('Gol Krallığı', '⚽', L.goals, 'gol')}
-      ${block('Asist Krallığı', '🎯', L.assists, 'asist')}
-      ${block('En Çok MVP', '⭐', L.mvps, 'MVP')}
+      ${block('Gol Krallığı', '⚽', L.goals, 'gol', 'gol')}
+      ${block('Asist Krallığı', '🎯', L.assists, 'asist', 'asist')}
+      ${block('En Çok MVP', '⭐', L.mvps, 'MVP', 'mvp')}
     </div>
     ${shareBtn('cap-leaders')}`;
   bindShare('krallik-yarisi');
@@ -1055,13 +1206,16 @@ async function adminPanel(head) {
 async function route() {
   const hash = location.hash || '#/';
   const [, page = '', id] = hash.split('/');
-  $$('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === (['mac', 'takim'].includes(page) ? '' : page)));
+  const tab = ['mac', 'takim'].includes(page) ? '' : page === 'istatistik' ? 'krallar' : page;
+  $$('.tabs a').forEach(a => a.classList.toggle('on', a.dataset.tab === tab));
   $('#tab-panel span').textContent = state.session ? 'Panel' : 'Giriş';
   const changed = hash !== lastHash;
 
   try {
     if (page === 'fikstur') viewFixtures();
+    else if (page === 'krallar' && id) await viewRanking(id);
     else if (page === 'krallar') viewLeaders();
+    else if (page === 'istatistik') await viewStats();
     else if (page === 'mac') await viewMatch(Number(id));
     else if (page === 'takim') viewTeam(Number(id));
     else if (page === 'panel') await viewPanel();
