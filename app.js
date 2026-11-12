@@ -651,7 +651,7 @@ function pitchSvg(half = false) {
       + `<path d="M ${26.69} ${ay} A 9.15 9.15 0 0 ${dir === 1 ? 0 : 1} ${41.31} ${ay}" ${line}/>`
       + `<rect x="30.34" y="${dir === 1 ? y0 - 1.6 : y0}" width="7.32" height="1.6" fill="rgba(255,255,255,.18)" ${line.replace('fill="none" ', '')}/>`;
   };
-  return `<svg class="pitch-svg" viewBox="${half ? `0 ${m} ${W} ${m}` : `0 0 ${W} ${L}`}" preserveAspectRatio="none" aria-hidden="true">
+  return `<svg class="pitch-svg" viewBox="${half ? `0 ${m} ${W} ${m}` : `0 0 ${W} ${L}`}" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
     <rect x="0" y="0" width="${W}" height="${L}" fill="#1b7a3e"/>${stripes}
     <rect x="${g}" y="${g}" width="${W - 2 * g}" height="${b - g}" ${line}/>
     <line x1="${g}" y1="${m}" x2="${W - g}" y2="${m}" ${line}/>
@@ -679,12 +679,19 @@ function pitchHalf(team, lu, top) {
     `<div class="line">${l.map(s => pChip(lu.slots.get(s), team, size)).join('')}</div>`).join('')}</div>`;
 }
 
+// Çok sıralı dizilişlerde saha uzasın, oyuncular taşmasın
+function pitchMinH(...lus) {
+  const rows = Math.max(1, ...lus.map(lu => (lu.form ? formationLines(lu.form.formation).length : 2)));
+  const size = rows > 4 ? 34 : 40;
+  return 2 * (rows * (size + 30) + 16);
+}
+
 function pitchView(H, A, luH, luA) {
   const label = (t, lu) => `<div class="pitch-label">${logo(t, 22)}<b>${esc(t?.name)}</b>${lu.form ? `<span class="fm">${esc(lu.form.formation)}</span>` : ''}</div>`;
   const benchOf = (t, lu) => lu.form && lu.bench.length
     ? `<div class="bench">${logo(t, 16)} <b>Yedekler:</b> ${lu.bench.map(p => `${p.number != null ? p.number + ' ' : ''}${esc(p.name)}`).join(', ')}</div>` : '';
   return `<div class="pitch-wrap">${label(A, luA)}
-      <div class="pitch">${pitchSvg()}${pitchHalf(A, luA, true)}${pitchHalf(H, luH, false)}</div>
+      <div class="pitch" style="min-height:${pitchMinH(luH, luA)}px">${pitchSvg()}${pitchHalf(A, luA, true)}${pitchHalf(H, luH, false)}</div>
       ${label(H, luH)}${benchOf(H, luH)}${benchOf(A, luA)}</div>`;
 }
 
@@ -740,6 +747,7 @@ function renderLuEditor(box, T, ed) {
   if (!opts.includes(ed.formation)) opts.unshift(ed.formation);
   const used = new Set(ed.slots.values());
   const lines = formationLines(ed.formation);
+  const size = lines.length > 4 ? 38 : 42;
   const bench = teamPlayers(T).filter(p => !used.has(p.id));
   box.innerHTML = `
     <div class="grid">
@@ -749,10 +757,10 @@ function renderLuEditor(box, T, ed) {
         `<option ${f === ed.formation ? 'selected' : ''}>${esc(f)}</option>`).join('')}</select></label>
     </div>
     <p class="muted small">Sahadaki yuvaya dokun, oyuncuyu seç. (${used.size}/${ed.count} dolu)</p>
-    <div class="pitch edit-pitch">${pitchSvg(true)}<div class="half hb">${[...lines].reverse().map(l => `<div class="line">${l.map(s =>
+    <div class="pitch edit-pitch" style="min-height:${lines.length * (size + 34) + 28}px">${pitchSvg(true)}<div class="half hb">${[...lines].reverse().map(l => `<div class="line">${l.map(s =>
       `<button type="button" class="slot" data-slot="${s}">${ed.slots.has(s)
-        ? pChip(playerById(ed.slots.get(s)), t)
-        : `<div class="pchip empty"><span class="av ph plus" style="width:42px;height:42px">+</span><b>${slotLabel(ed.formation, s)}</b></div>`}</button>`
+        ? pChip(playerById(ed.slots.get(s)), t, size)
+        : `<div class="pchip empty"><span class="av ph plus" style="width:${size}px;height:${size}px">+</span><b>${slotLabel(ed.formation, s)}</b></div>`}</button>`
     ).join('')}</div>`).join('')}</div></div>
     <h4>Yedekler</h4>
     <div class="checks">${bench.map(p => `<label><input type="checkbox" data-bench="${p.id}" ${ed.bench.has(p.id) ? 'checked' : ''}> ${pname(p)}</label>`).join('')

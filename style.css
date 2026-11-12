@@ -94,8 +94,8 @@ main { max-width: 760px; margin: 0 auto; padding: 18px 12px 124px; }
 .card-h { display: flex; align-items: center; gap: 8px; margin: 0 0 12px;
   font: 700 19px/1.1 var(--display); letter-spacing: .8px; text-transform: uppercase; }
 .card.flush .card-h { padding: 15px 16px 6px; }
-.empty { text-align: center; color: var(--muted); padding: 34px 18px; }
-.empty a { color: var(--gold); }
+.card.empty { text-align: center; color: var(--muted); padding: 34px 18px; }
+.card.empty a { color: var(--gold); }
 .sec { position: relative; display: flex; align-items: center; gap: 10px; margin: 28px 4px 12px;
   font: 800 19px/1 var(--display); letter-spacing: 1.6px; text-transform: uppercase; color: var(--cream); isolation: isolate; }
 .sec::before { content: ''; width: 5px; height: 18px; border-radius: 3px; background: linear-gradient(var(--gold), var(--w400)); box-shadow: 0 0 12px rgba(242, 193, 78, .5); }
@@ -199,7 +199,7 @@ td.pts { font: 800 19px var(--display); color: var(--gold); text-shadow: 0 0 14p
 .pitch + .pitch-label { padding: 10px 4px 2px; }
 .pitch-label .fm { margin-left: auto; color: var(--gold); background: rgba(242, 193, 78, .1); border: 1px solid rgba(242, 193, 78, .3);
   padding: 3px 9px; border-radius: 8px; font-size: 14px; letter-spacing: 1px; }
-.pitch { position: relative; aspect-ratio: 68 / 120; border-radius: 14px; overflow: hidden; background: #1b7a3e;
+.pitch { position: relative; width: calc(100% - 10px); min-width: 0; aspect-ratio: 68 / 120; border-radius: 14px; overflow: hidden; background: #1b7a3e;
   box-shadow: inset 0 0 60px rgba(0, 0, 0, .5), 0 0 0 4px #3a0a17, 0 0 0 5px rgba(242, 193, 78, .25), 0 16px 40px rgba(0, 0, 0, .5); margin: 5px; }
 .pitch::after { content: ''; position: absolute; inset: 0; pointer-events: none;
   background: radial-gradient(ellipse at 50% 50%, transparent 50%, rgba(20, 2, 8, .38)); }
@@ -222,7 +222,7 @@ td.pts { font: 800 19px var(--display); color: var(--gold); text-shadow: 0 0 14p
 .bench b { color: var(--text); }
 .edit-pitch { aspect-ratio: 68 / 60; }
 .edit-pitch .half { height: 100%; }
-.slot { background: none; border: 0; padding: 3px 0; cursor: pointer; border-radius: 12px; font: inherit; transition: transform .12s; }
+.slot { scroll-margin: 90px 0 110px; display: flex; justify-content: center; background: none; border: 0; padding: 3px 0; min-width: 0; cursor: pointer; border-radius: 12px; font: inherit; transition: transform .12s; }
 .slot:active { transform: scale(.94); }
 
 /* ---------- İstatistik sekmeleri & filtre ---------- */
